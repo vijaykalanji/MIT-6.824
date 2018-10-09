@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"mapreduce"
 	"os"
+	"strings"
+	"strconv"
+	"unicode"
 )
 
 //
@@ -15,6 +18,36 @@ import (
 //
 func mapF(filename string, contents string) []mapreduce.KeyValue {
 	// Your code here (Part II).
+
+	//Read the contents of the file and put it in the form of key  values
+	// <KEY> count or <KEY> = count+1;
+	// Return type is a slice of keyValue
+	fmt.Println(" filename------>",filename);
+	//fmt.Println("contents ------>",contents);
+	//arrayOfWords := strings.Fields(contents)
+
+	f := func(c rune) bool {
+		return !unicode.IsLetter(c) && !unicode.IsNumber(c)
+	}
+	arrayOfWords := strings.FieldsFunc(contents, f)
+	localWordCountMap := make(map[string]int)
+	for _, v := range arrayOfWords {
+		//fmt.Print(v,"-->")
+		localWordCountMap[v]=localWordCountMap[v]+1;
+		//fmt.Println(localWordCountMap[v])
+	}
+	var res []mapreduce.KeyValue
+	for k, v := range localWordCountMap {
+		fmt.Printf("key[%s] value[%s]\n", k, v)
+		kv := mapreduce.KeyValue{k,strconv.Itoa(v) }
+		res = append(res, kv)
+	}
+	fmt.Println("Length is --> ",len(res))
+	return res
+
+
+	////There is redundancy. You are supposed to the reduction the REDUCE PART.
+	////For now just emit the key and values even if there are duplicates.
 }
 
 //
@@ -24,10 +57,22 @@ func mapF(filename string, contents string) []mapreduce.KeyValue {
 //
 func reduceF(key string, values []string) string {
 	// Your code here (Part II).
+	// values slice contains all the local counts.
+	// We need to loop over all the values and create a global count
+	var totalSum int  = 0;
+	for _, element := range values {
+		i, err := strconv.Atoi(element)
+		if err != nil {
+			panic(err)
+		}
+		totalSum = totalSum + i
+	}
+	//fmt.Println("Global count for",key ," is ---->",totalSum)
+	return strconv.Itoa(totalSum)
 }
 
 // Can be run in 3 ways:
-// 1) Sequential (e.g., go run wc.go master sequential x1.txt .. xN.txt)
+// 1) Sequential (e.g., go run wc.go master sequentia	l x1.txt .. xN.txt)
 // 2) Master (e.g., go run wc.go master localhost:7777 x1.txt .. xN.txt)
 // 3) Worker (e.g., go run wc.go worker localhost:7777 localhost:7778 &)
 func main() {

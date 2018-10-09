@@ -1,6 +1,9 @@
 package mapreduce
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 //
 // schedule() starts and waits for all tasks in the given phase (mapPhase
@@ -22,6 +25,47 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 		ntasks = nReduce
 		n_other = len(mapFiles)
 	}
+	//fmt.Println("Number of tasks ===",ntasks)
+	var wg sync.WaitGroup
+	wg.Add(ntasks)
+	for i:=0;i < ntasks; i++ {
+		//fmt.Println("Processing ",i)
+		///ad one to wait group.
+		//wg.Add(1)
+
+		//fmt.Println("curWorker-->",curWorker);
+		///Prepare the work
+		var  doTaskArgs DoTaskArgs
+		if phase == mapPhase {
+			doTaskArgs.File = mapFiles[i]
+		}
+		doTaskArgs.NumOtherPhase = n_other
+		doTaskArgs.Phase = phase
+		doTaskArgs.TaskNumber = i
+		doTaskArgs.JobName =jobName
+		go func() {
+			for {
+				curWorker := <-registerChan
+				isSuccess := call(curWorker, "Worker.DoTask", doTaskArgs, nil)
+				if isSuccess {
+					/// Decrement the counter when the goroutine completes.
+					wg.Done()
+					///Return the worker back to channel.
+					registerChan <- curWorker
+					break
+				}else{
+					fmt.Println("FAILED -------------->",curWorker)
+					//If I try to add worker back to the channel it fails. I am guessing that if a worker fails for some reason
+					//we should not add it back to the channel.
+				}
+			}
+
+		}()
+	}
+	//fmt.Println("============== OUT  ============")
+	///Wait till every go routine completes.
+	wg.Wait()
+	//close(registerChan)
 
 	fmt.Printf("Schedule: %v %v tasks (%d I/Os)\n", ntasks, phase, n_other)
 

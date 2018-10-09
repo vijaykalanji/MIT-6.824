@@ -1,5 +1,13 @@
 package mapreduce
 
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"os"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +52,56 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+	fmt.Println(jobName);
+	fmt.Println(reduceTask);
+	fmt.Println(outFile);
+	fmt.Println(nMap);
+
+	// Each map tak will create one file for every reducer.
+	// So, we need to loop over all the map results for this
+
+	hMap := make(map[string][]string)
+	for i:=0 ; i<nMap;i++ {
+		//Get the file name
+		mapFileName:=reduceName(jobName, i, reduceTask)
+		fh,err:= os.Open(mapFileName)
+		//fileHandle, err := os.OpenFile(mapFileName, os.O_APPEND|os.O_WRONLY, 0600)
+		if err != nil {
+		panic(err)
+		}
+		dec := json.NewDecoder(fh)
+		fmt.Println("From REDUCE")
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err == io.EOF {
+				break
+			} else if err != nil {
+				log.Fatal(err)
+			}
+			//fmt.Printf("%s: %s\n", kv.Key, kv.Value)
+			hMap[kv.Key] = append(hMap[kv.Key],kv.Value)
+
+		}
+		fh.Close()
+		//Values are in Hash Map.
+		//fHandle,error1:= os.Open(outFile)
+		//fHandle,error1:= os.OpenFile(outFile, os.O_RDONLY|os.O_CREATE, 0666)
+		fHandle, error1 := os.OpenFile(outFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+		if error1 != nil {
+			panic(err)
+		}
+		//fmt.Println("outFile-->",outFile)
+		enc := json.NewEncoder(fHandle)
+		fmt.Println("Getting ready to write to a file")
+		for k, v := range hMap {
+			//fmt.Printf("key-->Value")
+			//fmt.Printf("key[%s] value[%s]\n", k, v)
+			//kv1 := KeyValue{k,  reduceF(k,v)}
+			//fmt.Println("--->",kv1)
+			enc.Encode(KeyValue{k,  reduceF(k,v)})
+		}
+		fHandle.Close()
+	}
+
+
 }

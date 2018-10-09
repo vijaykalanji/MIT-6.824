@@ -1,7 +1,10 @@
 package mapreduce
 
 import (
+	"encoding/json"
 	"hash/fnv"
+	"io/ioutil"
+	"os"
 )
 
 func doMap(
@@ -11,6 +14,10 @@ func doMap(
 	nReduce int, // the number of reduce task that will be run ("R" in the paper)
 	mapF func(filename string, contents string) []KeyValue,
 ) {
+	//fmt.Println(jobName)
+	//fmt.Println(mapTask)
+	//fmt.Println(inFile)
+	//fmt.Println(nReduce)
 	//
 	// doMap manages one map task: it should read one of the input files
 	// (inFile), call the user-defined map function (mapF) for that file's
@@ -53,10 +60,62 @@ func doMap(
 	//
 	// Your code here (Part I).
 	//
+
+	//My code goes here.
+
+
+
+	dat, err := ioutil.ReadFile(inFile)
+	check2(err)
+	//Convert it into a string.
+	str := string(dat)
+	//fmt.Print(string(dat))
+	res  := mapF(inFile,str)
+	//var reducerMap map[int]string
+	reducerMap := make(map[int]string)
+	// Create the intermediary files.
+	for i := 0; i < nReduce; i++ {
+		name :=reduceName(jobName, mapTask, i)
+		//fmt.Println("name-->",name)
+		file1,_:=os.Create(name)
+		reducerMap[i]=name;
+		file1.Close()
+	}
+
+	for _, element := range res {
+		reduceFile := ihash(element.Key)%nReduce
+		//fmt.Println(reducerMap[reduceFile])
+		//ioutil.WriteFile(reducerMap[reduceFile], element.Key+ element.Value, 0644)
+		//fmt.Println(element.Key, element.value)
+		//enc := json.NewEncoder(file)
+		//   for _, kv := ... {
+		//     err := enc.Encode(&kv)
+
+		fileName, err := os.OpenFile(reducerMap[reduceFile], os.O_APPEND|os.O_WRONLY, 0600)
+		//fmt.Println("------------->",reducerMap[reduceFile])
+		if err != nil {
+			panic(err)
+		}
+		//if _, err = fileName.WriteString(element.Key + element.Value+"\n"); err != nil {
+		//	panic(err)
+		//}
+		enc := json.NewEncoder(fileName)
+		enc.Encode(&element)
+		fileName.Close()
+	}
+
+
+
 }
 
 func ihash(s string) int {
 	h := fnv.New32a()
 	h.Write([]byte(s))
 	return int(h.Sum32() & 0x7fffffff)
+}
+
+func check2(e error) {
+	if e != nil {
+		panic(e)
+	}
 }
