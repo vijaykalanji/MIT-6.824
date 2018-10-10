@@ -25,16 +25,9 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 		ntasks = nReduce
 		n_other = len(mapFiles)
 	}
-	//fmt.Println("Number of tasks ===",ntasks)
 	var wg sync.WaitGroup
 	wg.Add(ntasks)
 	for i:=0;i < ntasks; i++ {
-		//fmt.Println("Processing ",i)
-		///ad one to wait group.
-		//wg.Add(1)
-
-		//fmt.Println("curWorker-->",curWorker);
-		///Prepare the work
 		var  doTaskArgs DoTaskArgs
 		if phase == mapPhase {
 			doTaskArgs.File = mapFiles[i]
@@ -62,13 +55,9 @@ func schedule(jobName string, mapFiles []string, nReduce int, phase jobPhase, re
 
 		}()
 	}
-	//fmt.Println("============== OUT  ============")
 	///Wait till every go routine completes.
 	wg.Wait()
-	//close(registerChan)
-
 	fmt.Printf("Schedule: %v %v tasks (%d I/Os)\n", ntasks, phase, n_other)
-
 	// All ntasks tasks have to be scheduled on workers. Once all tasks
 	// have completed successfully, schedule() should return.
 	//

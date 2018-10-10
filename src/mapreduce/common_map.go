@@ -14,10 +14,6 @@ func doMap(
 	nReduce int, // the number of reduce task that will be run ("R" in the paper)
 	mapF func(filename string, contents string) []KeyValue,
 ) {
-	//fmt.Println(jobName)
-	//fmt.Println(mapTask)
-	//fmt.Println(inFile)
-	//fmt.Println(nReduce)
 	//
 	// doMap manages one map task: it should read one of the input files
 	// (inFile), call the user-defined map function (mapF) for that file's
@@ -60,51 +56,30 @@ func doMap(
 	//
 	// Your code here (Part I).
 	//
-
-	//My code goes here.
-
-
-
 	dat, err := ioutil.ReadFile(inFile)
 	check2(err)
-	//Convert it into a string.
 	str := string(dat)
-	//fmt.Print(string(dat))
 	res  := mapF(inFile,str)
-	//var reducerMap map[int]string
-	reducerMap := make(map[int]string)
-	// Create the intermediary files.
+	contentMap := make(map[int][]KeyValue)
+	//Collect all the key value pairs that are intended for a particular reducer.
+	for _, element := range res {
+		reduceFileIndex := ihash(element.Key)%nReduce
+		contentMap[reduceFileIndex] = append(contentMap[reduceFileIndex],element)
+	}
+	//Open every file only once. We have all the KV pair that go to a particular file.
+	//Write all the KV pair in one go.
 	for i := 0; i < nReduce; i++ {
 		name :=reduceName(jobName, mapTask, i)
-		//fmt.Println("name-->",name)
-		file1,_:=os.Create(name)
-		reducerMap[i]=name;
-		file1.Close()
-	}
-
-	for _, element := range res {
-		reduceFile := ihash(element.Key)%nReduce
-		//fmt.Println(reducerMap[reduceFile])
-		//ioutil.WriteFile(reducerMap[reduceFile], element.Key+ element.Value, 0644)
-		//fmt.Println(element.Key, element.value)
-		//enc := json.NewEncoder(file)
-		//   for _, kv := ... {
-		//     err := enc.Encode(&kv)
-
-		fileName, err := os.OpenFile(reducerMap[reduceFile], os.O_APPEND|os.O_WRONLY, 0600)
-		//fmt.Println("------------->",reducerMap[reduceFile])
+		fileHandle, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 		if err != nil {
 			panic(err)
 		}
-		//if _, err = fileName.WriteString(element.Key + element.Value+"\n"); err != nil {
-		//	panic(err)
-		//}
-		enc := json.NewEncoder(fileName)
-		enc.Encode(&element)
-		fileName.Close()
+		enc := json.NewEncoder(fileHandle)
+		for _, kvPair := range contentMap[i] {
+			enc.Encode(&kvPair)
+		}
+		defer fileHandle.Close()
 	}
-
-
 
 }
 
