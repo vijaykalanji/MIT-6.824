@@ -39,6 +39,13 @@ import (
 // snapshots) on the applyCh; at that point you can add fields to
 // ApplyMsg, but set CommandValid to false for these other uses.
 //
+
+const (
+	Follower  = "FOLLOWER"
+	Candidate = "CANDIDATE"
+	Leader    = "LEADER"
+)
+
 type ApplyMsg struct {
 	CommandValid bool
 	Command      interface{}
@@ -172,17 +179,8 @@ func (rf *Raft) readPersist(data []byte) {
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
-	///Reply false if term < currentTerm
-
-	//if args.Term < currentTerm {
-	//	reply.VoteGranted =false;
-		//return
-	//}
-
-	//if (votedFor == 0 || votedFor == args.CandidateId) && args.LastLogIndex >= 	{
-	//	// it's a zero value
-	//}
-
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 	var lastIndex int
 	//var lastTerm  int
 	if len(rf.log) > 0 {
@@ -193,14 +191,15 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		lastIndex = 0
 		//lastTerm = 0
 	}
-
+	reply.Term = rf.currentTerm
 	if args.Term < rf.currentTerm {
 		reply.VoteGranted = false
-	} else if (rf.votedFor == 0 || rf.votedFor == args.CandidateId) && args.LastLogIndex >= lastIndex {
+	} else if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && args.LastLogIndex >= lastIndex {
 			rf.votedFor = args.CandidateId
 			reply.VoteGranted = true
+			//fmt.Println(rf.me," votedFor-->",args.CandidateId)
 	} else {
-		rf.currentState = "FOLLOWER"
+		rf.currentState = Follower
 		rf.votedFor = args.CandidateId
 		reply.VoteGranted = true
 	}
@@ -258,8 +257,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
-
-
 	return index, term, isLeader
 }
 
@@ -300,6 +297,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentState = "FOLLOWER"
 	rf.commitIndex=0
 	rf.lastApplied=0
+	rf.votedFor=-1
+	rf.currentTerm=0
 	// Your initialization code here (2A, 2B, 2C).
 	go rf.conductElection()
 	//Send heart beat to everybody else
@@ -307,44 +306,128 @@ func Make(peers []*labrpc.ClientEnd, me int,
 }
 
 func (rf* Raft)conductElection(){
-	///Wait till timer lapses.
-	randomSleepTime :=(200 + time.Duration(rand.Intn(300))) * time.Millisecond
-	//fmt.Print("Random Timer-->" , randomSleepTime)
+
+	randomSleepTime :=(400 + time.Duration(rand.Intn(300))) * time.Millisecond
 	time.Sleep(randomSleepTime)
-	///
-	rf.currentTerm++
-	rf.votedFor = rf.me
-	rf.currentState="CANDIDATE"
-	//
-	var lastTerm int
-	var lastIndex int
-	if len(rf.log) > 0 {
-		lastEntry := rf.log[len(rf.log)-1]
-		lastTerm = lastEntry.lastLogTerm
-		lastIndex = lastEntry.lastLogIndex
-	}else{
-		lastTerm=0
-		lastIndex=0
-	}
+
+	// When my timer goes off, I need to see whether I need to conduct election.
+	rf.transitionToCandidate()
+	lastIndex, lastTerm := rf.getLastEntryInfo()
 	requestVoteArgs := RequestVoteArgs{Term:rf.currentTerm,CandidateId:rf.me,LastLogTerm:lastTerm,LastLogIndex:lastIndex }
 	var requestVoteReply RequestVoteReply
-	var voteCount int = 1
-	for peer := range rf.peers {
-		if peer != rf.me {
-			rf.sendRequestVote(peer,&requestVoteArgs, &requestVoteReply)
-			if requestVoteReply.Term > rf.currentTerm {
-				fmt.Print("Got a higher current term from peer " ,peer," So breaking")
+	var voteCount = 1
+
+	if rf.currentState!=Leader {
+		votesCh := make(chan bool)
+		for id := range rf.peers {
+			if id != rf.me {
+				//fmt.Println("Inside Go routine",id)
+				go func(id int, peer *labrpc.ClientEnd) {
+				ok := rf.sendRequestVote(id, &requestVoteArgs, &requestVoteReply)
+				response := ok && requestVoteReply.VoteGranted
+				votesCh <- response
+				}(id,rf.peers[id])
+			}else{
+				//fmt.Println("I am ",rf.me)
+			}
+		}
+		fmt.Println("len(rf.peers)   ",len(rf.peers))
+		for {
+			hasPeerVotedForMe := <-votesCh
+			if hasPeerVotedForMe {
+				voteCount +=1
+				//fmt.Println(rf.me ," Incremented vote count-->",voteCount)
+				if voteCount > (len(rf.peers)/2) {
+					fmt.Println("I won the election !!! ",rf.me,"Vote count -->",voteCount, " ",len(rf.peers)/2)
+					go rf.promoteToLeader()
+					break
+				}
+			} else if requestVoteReply.Term > rf.currentTerm {
+				fmt.Println("Got a higher current term from peer " ,rf.me," So breaking")
 				rf.currentState="FOLLOWER"
 				break
 			}
-			if requestVoteReply.VoteGranted {
-				voteCount +=1
-			}
-			if voteCount > (len(rf.peers)/2){
-				fmt.Println("I won the election !!! ",rf.me)
-				rf.currentState="LEADER"
-				break
-			}
 		}
+
 	}
+}
+
+func (rf* Raft) promoteToLeader(){
+	rf.currentState =Leader
+	rf.sendHeartBeat()
+}
+
+func (rf* Raft)sendHeartBeat(){
+	for {
+		timer := time.NewTimer(2 * time.Second)
+		<-timer.C
+		if rf.currentState!=Leader{
+			break
+		}
+		//Otherwise we will have to send heart beat for every peer.
+		for peer := range rf.peers {
+			if peer != rf.me {
+
+				go func(id int, peer *labrpc.ClientEnd) {
+					var prevLogIndex, prevLogTerm int = 0, 0
+					if len(rf.log) > 0 {
+						lastEntry := rf.log[len(rf.log)-1]
+						prevLogIndex, prevLogTerm = lastEntry.lastLogIndex, lastEntry.lastLogIndex
+					} else {
+						prevLogIndex, prevLogTerm = 0, 0
+					}
+					reply := AppendEntriesReply{}
+					args := AppendEntriesArgs{
+						Term:             rf.currentTerm,
+						LeaderID:         rf.me,
+						PreviousLogIndex: prevLogIndex,
+						PreviousLogTerm:  prevLogTerm,
+						LogEntries:       entries,
+						LeaderCommit:     rf.commitIndex,
+					}
+					ok := peer.Call("Raft.AppendEntries", args, reply)
+
+				}(id,rf.peers[peer])
+
+			}
+
+		}
+
+	}
+}
+
+type AppendEntriesArgs struct {
+	// Your data here.
+	Term int
+	LeaderID int
+	PreviousLogTerm int
+	PreviousLogIndex int
+	LogEntries []LogEntry
+	LeaderCommit int
+}
+
+type AppendEntriesReply struct {
+	// Your data here.
+	Term int
+	Success bool
+	NextIndex int
+}
+func (rf *Raft) transitionToCandidate() {
+	rf.currentState = Candidate
+	rf.currentTerm++
+	rf.votedFor = rf.me
+}
+
+func (rf *Raft) transitionToFollower(newTerm int) {
+	rf.currentState = Follower
+	rf.currentTerm = newTerm
+
+}
+
+func (rf *Raft) getLastEntryInfo() (int, int) {
+	if len(rf.log) > 0 {
+		entry := rf.log[len(rf.log)-1]
+		return entry.lastLogIndex, entry.lastLogTerm
+	}
+	return 0,0
 }
