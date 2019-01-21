@@ -20,6 +20,7 @@ package raft
 import (
 	"fmt"
 	"math/rand"
+
 	"sync"
 	"time"
 	"labrpc"
@@ -115,6 +116,7 @@ type Raft struct {
 	 votedFor int
 	/// Place holder for log entries.
 	log         []LogEntry
+	electionTimer *time.Timer
 }
 
 
@@ -197,11 +199,6 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && args.LastLogIndex >= lastIndex {
 			rf.votedFor = args.CandidateId
 			reply.VoteGranted = true
-			//fmt.Println(rf.me," votedFor-->",args.CandidateId)
-	} else {
-		rf.currentState = Follower
-		rf.votedFor = args.CandidateId
-		reply.VoteGranted = true
 	}
 }
 
@@ -299,6 +296,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.lastApplied=0
 	rf.votedFor=-1
 	rf.currentTerm=0
+	rf.electionTimer = time.NewTimer((400 + time.Duration(rand.Intn(300))) * time.Millisecond)
 	// Your initialization code here (2A, 2B, 2C).
 	go rf.conductElection()
 	//Send heart beat to everybody else
@@ -307,16 +305,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf* Raft)conductElection(){
 
-	randomSleepTime :=(400 + time.Duration(rand.Intn(300))) * time.Millisecond
-	time.Sleep(randomSleepTime)
-
+	<-rf.electionTimer.C
 	// When my timer goes off, I need to see whether I need to conduct election.
 	rf.transitionToCandidate()
 	lastIndex, lastTerm := rf.getLastEntryInfo()
 	requestVoteArgs := RequestVoteArgs{Term:rf.currentTerm,CandidateId:rf.me,LastLogTerm:lastTerm,LastLogIndex:lastIndex }
 	var requestVoteReply RequestVoteReply
 	var voteCount = 1
-
 	if rf.currentState!=Leader {
 		votesCh := make(chan bool)
 		for id := range rf.peers {
@@ -331,14 +326,14 @@ func (rf* Raft)conductElection(){
 				//fmt.Println("I am ",rf.me)
 			}
 		}
-		fmt.Println("len(rf.peers)   ",len(rf.peers))
+		//fmt.Println("len(rf.peers)   ",len(rf.peers))
 		for {
 			hasPeerVotedForMe := <-votesCh
 			if hasPeerVotedForMe {
 				voteCount +=1
 				//fmt.Println(rf.me ," Incremented vote count-->",voteCount)
 				if voteCount > (len(rf.peers)/2) {
-					fmt.Println("I won the election !!! ",rf.me,"Vote count -->",voteCount, " ",len(rf.peers)/2)
+					//fmt.Println("I won the election !!! ",rf.me,"Vote count -->",voteCount, " ",len(rf.peers)/2)
 					go rf.promoteToLeader()
 					break
 				}
@@ -365,9 +360,8 @@ func (rf* Raft)sendHeartBeat(){
 			break
 		}
 		//Otherwise we will have to send heart beat for every peer.
-		for peer := range rf.peers {
-			if peer != rf.me {
-
+		for id, peer := range rf.peers {
+			if id != rf.me {
 				go func(id int, peer *labrpc.ClientEnd) {
 					var prevLogIndex, prevLogTerm int = 0, 0
 					if len(rf.log) > 0 {
@@ -382,13 +376,18 @@ func (rf* Raft)sendHeartBeat(){
 						LeaderID:         rf.me,
 						PreviousLogIndex: prevLogIndex,
 						PreviousLogTerm:  prevLogTerm,
-						LogEntries:       entries,
+						LogEntries:       make([]LogEntry, 0), //Empty array
 						LeaderCommit:     rf.commitIndex,
 					}
 					ok := peer.Call("Raft.AppendEntries", args, reply)
-
-				}(id,rf.peers[peer])
-
+				///If everything is ok or not
+				// if term>myTerm => Transition to follower.
+				if ok && reply.Term>rf.currentTerm {
+					rf.mu.Lock()
+					rf.transitionToFollower(reply.Term);
+					rf.mu.Unlock()
+				}
+				}(id,peer)
 			}
 
 		}
@@ -421,7 +420,13 @@ func (rf *Raft) transitionToCandidate() {
 func (rf *Raft) transitionToFollower(newTerm int) {
 	rf.currentState = Follower
 	rf.currentTerm = newTerm
+	rf.votedFor = -1;
+	rf.resetElectionTimer()
 
+}
+func (rf* Raft) resetElectionTimer(){
+	rf.electionTimer.Stop()
+	rf.electionTimer.Reset((400 + time.Duration(rand.Intn(300))) * time.Millisecond)
 }
 
 func (rf *Raft) getLastEntryInfo() (int, int) {
