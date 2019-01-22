@@ -333,11 +333,11 @@ func (cfg *config) checkTerms() int {
 	for i := 0; i < cfg.n; i++ {
 		if cfg.connected[i] {
 			xterm, _ := cfg.rafts[i].GetState()
+			fmt.Println("xterm ",xterm)
 			if term == -1 {
 				term = xterm
 			} else if term != xterm {
 				cfg.t.Fatalf("servers disagree on term")
-				fmt.Println(term, " ",xterm)
 			}
 		}
 	}
@@ -497,7 +497,6 @@ func (cfg *config) end() {
 		nrpc := cfg.rpcTotal() - cfg.rpcs0    // number of RPC sends
 		ncmds := cfg.maxIndex - cfg.maxIndex0 // number of Raft agreements reported
 		cfg.mu.Unlock()
-
 		fmt.Printf("  ... Passed --")
 		fmt.Printf("  %4.1f  %d %4d %4d\n", t, npeers, nrpc, ncmds)
 	}

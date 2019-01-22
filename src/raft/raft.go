@@ -54,9 +54,9 @@ type ApplyMsg struct {
 }
 
 type LogEntry struct {
-command interface{}
-	lastLogTerm int
-	lastLogIndex int
+	Command interface{}
+	LastLogTerm int
+	LastLogIndex int
 }
 
 //
@@ -182,12 +182,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
 	rf.mu.Lock()
+	//fmt.Println("***************Inside the RPC call for sendRequestVote *********************")
 	defer rf.mu.Unlock()
 	var lastIndex int
 	//var lastTerm  int
 	if len(rf.log) > 0 {
 		lastLogEntry := rf.log[len(rf.log)-1]
-		lastIndex = lastLogEntry.lastLogIndex
+		lastIndex = lastLogEntry.LastLogIndex
 		//lastTerm = lastLogEntry.lastLogTerm
 	}else{
 		lastIndex = 0
@@ -199,7 +200,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && args.LastLogIndex >= lastIndex {
 			rf.votedFor = args.CandidateId
 			reply.VoteGranted = true
+			rf.currentTerm = args.Term
+			//fmt.Println("I am setting my currentTerm to -->",args.Term)
 	}
+}
+
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)  {
+	rf.mu.Lock()
+	fmt.Println("***************Inside the RPC call for AppendEntries *********************")
+	defer rf.mu.Unlock()
 }
 
 //
@@ -252,7 +262,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := -1
 	isLeader := true
-
 	// Your code here (2B).
 	return index, term, isLeader
 }
@@ -333,7 +342,7 @@ func (rf* Raft)conductElection(){
 				voteCount +=1
 				//fmt.Println(rf.me ," Incremented vote count-->",voteCount)
 				if voteCount > (len(rf.peers)/2) {
-					//fmt.Println("I won the election !!! ",rf.me,"Vote count -->",voteCount, " ",len(rf.peers)/2)
+					fmt.Println("I won the election !!! ",rf.me,"Vote count -->",voteCount, " ",len(rf.peers)/2)
 					go rf.promoteToLeader()
 					break
 				}
@@ -361,12 +370,13 @@ func (rf* Raft)sendHeartBeat(){
 		}
 		//Otherwise we will have to send heart beat for every peer.
 		for id, peer := range rf.peers {
+			//fmt.Println("peer -->",peer)
 			if id != rf.me {
 				go func(id int, peer *labrpc.ClientEnd) {
-					var prevLogIndex, prevLogTerm int = 0, 0
+					var prevLogIndex, prevLogTerm = 0, 0
 					if len(rf.log) > 0 {
 						lastEntry := rf.log[len(rf.log)-1]
-						prevLogIndex, prevLogTerm = lastEntry.lastLogIndex, lastEntry.lastLogIndex
+						prevLogIndex, prevLogTerm = lastEntry.LastLogIndex, lastEntry.LastLogIndex
 					} else {
 						prevLogIndex, prevLogTerm = 0, 0
 					}
@@ -379,12 +389,14 @@ func (rf* Raft)sendHeartBeat(){
 						LogEntries:       make([]LogEntry, 0), //Empty array
 						LeaderCommit:     rf.commitIndex,
 					}
-					ok := peer.Call("Raft.AppendEntries", args, reply)
+					requestName := "Raft.AppendEntries"
+					ok := rf.peers[id].Call(requestName, args, reply)
+					fmt.Println("Called APPEND ENTRIES ***************** ",ok, " ",id)
 				///If everything is ok or not
 				// if term>myTerm => Transition to follower.
 				if ok && reply.Term>rf.currentTerm {
 					rf.mu.Lock()
-					rf.transitionToFollower(reply.Term);
+					rf.transitionToFollower(reply.Term)
 					rf.mu.Unlock()
 				}
 				}(id,peer)
@@ -415,6 +427,7 @@ func (rf *Raft) transitionToCandidate() {
 	rf.currentState = Candidate
 	rf.currentTerm++
 	rf.votedFor = rf.me
+	fmt.Println(" TRANSITIONING INTO CANDIDATE  -->",rf.me, " term --> ",rf.currentTerm)
 }
 
 func (rf *Raft) transitionToFollower(newTerm int) {
@@ -425,6 +438,7 @@ func (rf *Raft) transitionToFollower(newTerm int) {
 
 }
 func (rf* Raft) resetElectionTimer(){
+	fmt.Println("Restarting my timer ",rf.me)
 	rf.electionTimer.Stop()
 	rf.electionTimer.Reset((400 + time.Duration(rand.Intn(300))) * time.Millisecond)
 }
@@ -432,7 +446,7 @@ func (rf* Raft) resetElectionTimer(){
 func (rf *Raft) getLastEntryInfo() (int, int) {
 	if len(rf.log) > 0 {
 		entry := rf.log[len(rf.log)-1]
-		return entry.lastLogIndex, entry.lastLogTerm
+		return entry.LastLogIndex, entry.LastLogTerm
 	}
 	return 0,0
 }
