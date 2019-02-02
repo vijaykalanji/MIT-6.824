@@ -201,14 +201,16 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			rf.votedFor = args.CandidateId
 			reply.VoteGranted = true
 			rf.currentTerm = args.Term
-			//fmt.Println("I am setting my currentTerm to -->",args.Term)
+			rf.resetElectionTimer();
+			fmt.Println("I am setting my currentTerm to -->",args.Term,"I am ",rf.me)
 	}
 }
 
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)  {
 	rf.mu.Lock()
-	fmt.Println("***************Inside the RPC call for AppendEntries *********************")
+	rf.resetElectionTimer()
+	//fmt.Println("***************Inside the RPC call for AppendEntries *********************")
 	defer rf.mu.Unlock()
 }
 
@@ -319,7 +321,6 @@ func (rf* Raft)conductElection(){
 	rf.transitionToCandidate()
 	lastIndex, lastTerm := rf.getLastEntryInfo()
 	requestVoteArgs := RequestVoteArgs{Term:rf.currentTerm,CandidateId:rf.me,LastLogTerm:lastTerm,LastLogIndex:lastIndex }
-	var requestVoteReply RequestVoteReply
 	var voteCount = 1
 	if rf.currentState!=Leader {
 		votesCh := make(chan bool)
@@ -327,9 +328,16 @@ func (rf* Raft)conductElection(){
 			if id != rf.me {
 				//fmt.Println("Inside Go routine",id)
 				go func(id int, peer *labrpc.ClientEnd) {
-				ok := rf.sendRequestVote(id, &requestVoteArgs, &requestVoteReply)
-				response := ok && requestVoteReply.VoteGranted
-				votesCh <- response
+					requestVoteReply := RequestVoteReply{}
+					ok := rf.sendRequestVote(id, &requestVoteArgs, &requestVoteReply)
+					response := ok && requestVoteReply.VoteGranted
+					//Check now whether everything is OK. This is moved from outside as we are creating requestVoteReply within
+					// Go routine.
+					if requestVoteReply.Term > rf.currentTerm {
+						fmt.Println("Got a higher current term from peer " ,rf.me," So breaking")
+						rf.transitionToFollower(requestVoteReply.Term)
+					}
+					votesCh <- response
 				}(id,rf.peers[id])
 			}else{
 				//fmt.Println("I am ",rf.me)
@@ -338,6 +346,9 @@ func (rf* Raft)conductElection(){
 		//fmt.Println("len(rf.peers)   ",len(rf.peers))
 		for {
 			hasPeerVotedForMe := <-votesCh
+			if rf.currentState == Follower {
+				break
+			}
 			if hasPeerVotedForMe {
 				voteCount +=1
 				//fmt.Println(rf.me ," Incremented vote count-->",voteCount)
@@ -346,10 +357,6 @@ func (rf* Raft)conductElection(){
 					go rf.promoteToLeader()
 					break
 				}
-			} else if requestVoteReply.Term > rf.currentTerm {
-				fmt.Println("Got a higher current term from peer " ,rf.me," So breaking")
-				rf.currentState="FOLLOWER"
-				break
 			}
 		}
 
@@ -363,8 +370,6 @@ func (rf* Raft) promoteToLeader(){
 
 func (rf* Raft)sendHeartBeat(){
 	for {
-		timer := time.NewTimer(2 * time.Second)
-		<-timer.C
 		if rf.currentState!=Leader{
 			break
 		}
@@ -390,8 +395,8 @@ func (rf* Raft)sendHeartBeat(){
 						LeaderCommit:     rf.commitIndex,
 					}
 					requestName := "Raft.AppendEntries"
-					ok := rf.peers[id].Call(requestName, args, reply)
-					fmt.Println("Called APPEND ENTRIES ***************** ",ok, " ",id)
+					ok := rf.peers[id].Call(requestName, &args, &reply)
+					//fmt.Println("Called APPEND ENTRIES ***************** ",ok, " ",id)
 				///If everything is ok or not
 				// if term>myTerm => Transition to follower.
 				if ok && reply.Term>rf.currentTerm {
@@ -403,6 +408,9 @@ func (rf* Raft)sendHeartBeat(){
 			}
 
 		}
+		//Check at the last. This is because this way the first HB will be sent immediately.
+		timer := time.NewTimer(100 * time.Millisecond)
+		<-timer.C
 
 	}
 }
@@ -438,7 +446,7 @@ func (rf *Raft) transitionToFollower(newTerm int) {
 
 }
 func (rf* Raft) resetElectionTimer(){
-	fmt.Println("Restarting my timer ",rf.me)
+	//fmt.Println("Restarting my timer ",rf.me)
 	rf.electionTimer.Stop()
 	rf.electionTimer.Reset((400 + time.Duration(rand.Intn(300))) * time.Millisecond)
 }
