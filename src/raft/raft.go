@@ -458,3 +458,9 @@ func (rf *Raft) getLastEntryInfo() (int, int) {
 	}
 	return 0,0
 }
+
+func (rf *Raft) debug(format string, a ...interface{}) {
+    // NOTE: must hold lock when this function is called!
+    Dprintf(rf.me, rf.currentState, format, a...)
+    return
+}
