@@ -435,7 +435,7 @@ func (rf *Raft) transitionToCandidate() {
 	rf.currentState = Candidate
 	rf.currentTerm++
 	rf.votedFor = rf.me
-	fmt.Println(" TRANSITIONING INTO CANDIDATE  -->",rf.me, " term --> ",rf.currentTerm)
+    rf.debug("Transition to candidate, term=%d", rf.currentTerm)
 }
 
 func (rf *Raft) transitionToFollower(newTerm int) {
