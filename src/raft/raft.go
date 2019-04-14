@@ -182,7 +182,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
 	rf.mu.Lock()
-	//fmt.Println("***************Inside the RPC call for sendRequestVote *********************")
+	rf.debug("***************Inside the RPC call for sendRequestVote *********************")
 	defer rf.mu.Unlock()
 	var lastIndex int
 	//var lastTerm  int
@@ -195,21 +195,23 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		//lastTerm = 0
 	}
 	reply.Term = rf.currentTerm
+	//rf.debug()
 	if args.Term < rf.currentTerm {
 		reply.VoteGranted = false
+		rf.debug("My term is higher than candidate's term, myTerm = %d, candidate's term = %d", rf.currentTerm,args.Term )
 	} else if (rf.votedFor == -1 || rf.votedFor == args.CandidateId) && args.LastLogIndex >= lastIndex {
 			rf.votedFor = args.CandidateId
 			reply.VoteGranted = true
 			rf.currentTerm = args.Term
-			rf.resetElectionTimer();
-			fmt.Println("I am setting my currentTerm to -->",args.Term,"I am ",rf.me)
+			rf.resetElectionTimer()
+			rf.debug("I am setting my currentTerm to -->",args.Term,"I am ",rf.me)
 	}
 }
 
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)  {
 	rf.mu.Lock()
-	rf.resetElectionTimer()
+	rf.transitionToFollower(args.Term)
 	//fmt.Println("***************Inside the RPC call for AppendEntries *********************")
 	defer rf.mu.Unlock()
 }
@@ -316,7 +318,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 func (rf* Raft)conductElection(){
 
+	rf.debug("Inside conductElection ")
+	rf.debug("Inside conductElection ")
+	count := len(rf.peers)-1//COunt of peers. I should receive these many votes.
+	//rf.debug("Count ")
 	<-rf.electionTimer.C
+	//Let us reset the timer here itself. This way when we don't get a majority we will save some time
+	rf.resetElectionTimer()
 	// When my timer goes off, I need to see whether I need to conduct election.
 	rf.transitionToCandidate()
 	lastIndex, lastTerm := rf.getLastEntryInfo()
@@ -329,6 +337,7 @@ func (rf* Raft)conductElection(){
 				//fmt.Println("Inside Go routine",id)
 				go func(id int, peer *labrpc.ClientEnd) {
 					requestVoteReply := RequestVoteReply{}
+					rf.debug(" Before sending the request vote to %d ",id)
 					ok := rf.sendRequestVote(id, &requestVoteArgs, &requestVoteReply)
 					response := ok && requestVoteReply.VoteGranted
 					//Check now whether everything is OK. This is moved from outside as we are creating requestVoteReply within
@@ -345,15 +354,26 @@ func (rf* Raft)conductElection(){
 		}
 		//fmt.Println("len(rf.peers)   ",len(rf.peers))
 		for {
+
+			if count == 0 {
+			rf.debug("Count == 0")
+					rf.conductElection()
+					break
+			}
 			hasPeerVotedForMe := <-votesCh
+			//I got  a response. I am going to decrement count
+			count--
 			if rf.currentState == Follower {
 				break
 			}
+			rf.debug("Did I recieve vote ? --> %t, currentVoteCount =%d ",hasPeerVotedForMe,voteCount)
 			if hasPeerVotedForMe {
 				voteCount +=1
 				//fmt.Println(rf.me ," Incremented vote count-->",voteCount)
+				//rf.debug()
 				if voteCount > (len(rf.peers)/2) {
-					fmt.Println("I won the election !!! ",rf.me,"Vote count -->",voteCount, " ",len(rf.peers)/2)
+					//fmt.Println("I won the election !!! ",rf.me,"Vote count -->",voteCount, " ",len(rf.peers)/2)
+					rf.debug("I won the election !!! VoteCount=%d, threshold = %d",voteCount,len(rf.peers)/2)
 					go rf.promoteToLeader()
 					break
 				}
@@ -397,6 +417,7 @@ func (rf* Raft)sendHeartBeat(){
 					requestName := "Raft.AppendEntries"
 					ok := rf.peers[id].Call(requestName, &args, &reply)
 					//fmt.Println("Called APPEND ENTRIES ***************** ",ok, " ",id)
+					//rf.debug("Called APPEND ENTRIES ***************** OK = %d",ok)
 				///If everything is ok or not
 				// if term>myTerm => Transition to follower.
 				if ok && reply.Term>rf.currentTerm {
@@ -441,11 +462,12 @@ func (rf *Raft) transitionToCandidate() {
 func (rf *Raft) transitionToFollower(newTerm int) {
 	rf.currentState = Follower
 	rf.currentTerm = newTerm
-	rf.votedFor = -1;
+	rf.votedFor = -1
 	rf.resetElectionTimer()
 
 }
 func (rf* Raft) resetElectionTimer(){
+	rf.debug("Restarting my timer")
 	//fmt.Println("Restarting my timer ",rf.me)
 	rf.electionTimer.Stop()
 	rf.electionTimer.Reset((400 + time.Duration(rand.Intn(300))) * time.Millisecond)
