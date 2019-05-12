@@ -263,13 +263,78 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 // the leader.
 //
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
+
+	//Check if I am the leader
+	//if false  --> return
+	//If true -->
+		// 1. Add to my log
+		// 2. Send heart beat/Append entries to other peers
+		//Check your own last log index and 1 to it.
+		//Let other peers know that this is the log index for new entry.
+
+		// we need to modify the heart beat mechanism such that it sends entries if any.
 	index := -1
 	term := -1
-	isLeader := true
+	//Otherwise prepare the log entry from the given command.
 	// Your code here (2B).
+	///////
+	term, isLeader :=rf.GetState()
+	if isLeader == false {
+		return index,term,isLeader
+	}
+	term = rf.currentTerm;
+	index = rf.lastApplied
+	rf.sendAppendLogEntries(command)
 	return index, term, isLeader
 }
 
+func (rf* Raft)sendAppendLogEntries(command interface{}){
+		if rf.currentState!=Leader{
+			return
+		}
+		//Otherwise we will have to send append entries for every peer.
+		for id, peer := range rf.peers {
+			//fmt.Println("peer -->",peer)
+			if id != rf.me {
+				go func(id int, peer *labrpc.ClientEnd) {
+					var prevLogIndex, prevLogTerm = 0, 0
+					if len(rf.log) > 0 {
+						lastEntry := rf.log[len(rf.log)-1]
+						prevLogIndex, prevLogTerm = lastEntry.LastLogIndex, lastEntry.LastLogIndex
+					} else {
+						prevLogIndex, prevLogTerm = 0, 0
+					}
+					logEntry := LogEntry{LastLogIndex: rf.lastApplied, LastLogTerm: rf.currentTerm, Command: command}
+					logEntryArr:= make([]LogEntry, 1)
+					logEntryArr[0] = logEntry
+					reply := AppendEntriesReply{}
+					args := AppendEntriesArgs{
+						Term:             rf.currentTerm,
+						LeaderID:         rf.me,
+						PreviousLogIndex: prevLogIndex,
+						PreviousLogTerm:  prevLogTerm,
+						LogEntries:       logEntryArr, //Log Entry array
+						LeaderCommit:     rf.commitIndex,
+					}
+					requestName := "Raft.AppendEntries"
+					ok := rf.peers[id].Call(requestName, &args, &reply)
+					//fmt.Println("Called APPEND ENTRIES ***************** ",ok, " ",id)
+					//rf.debug("Called APPEND ENTRIES ***************** OK = %d",ok)
+					///If everything is ok or not
+					// if term>myTerm => Transition to follower.
+					if ok && reply.Term>rf.currentTerm {
+						rf.mu.Lock()
+						rf.transitionToFollower(reply.Term)
+						rf.mu.Unlock()
+					}
+				}(id,peer)
+			}
+
+		}
+		//Check at the last. This is because this way the first HB will be sent immediately.
+		timer := time.NewTimer(100 * time.Millisecond)
+		<-timer.C
+}
 //
 // the tester calls Kill() when a Raft instance won't
 // be needed again. you are not required to do anything
@@ -291,9 +356,6 @@ func (rf *Raft) Kill() {
 // Make() must return quickly, so it should start goroutines
 // for any long-running work.
 //
-
-
-
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *Persister, applyCh chan ApplyMsg) *Raft {
 	rf := &Raft{}
@@ -302,13 +364,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
 	/// Start as a follower.
 	rf.currentState = "FOLLOWER"
 	rf.commitIndex=0
 	rf.lastApplied=0
 	rf.votedFor=-1
 	rf.currentTerm=0
+	//Initialize the log.
+	rf.log = append(rf.log, LogEntry{LastLogTerm: 0})
 	rf.electionTimer = time.NewTimer((400 + time.Duration(rand.Intn(300))) * time.Millisecond)
 	// Your initialization code here (2A, 2B, 2C).
 	go rf.conductElection()
@@ -319,8 +382,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 func (rf* Raft)conductElection(){
 
 	rf.debug("Inside conductElection ")
-	rf.debug("Inside conductElection ")
-	count := len(rf.peers)-1//COunt of peers. I should receive these many votes.
+	count := len(rf.peers)-1//Count of peers. I should receive these many votes.
 	//rf.debug("Count ")
 	<-rf.electionTimer.C
 	//Let us reset the timer here itself. This way when we don't get a majority we will save some time
@@ -354,7 +416,6 @@ func (rf* Raft)conductElection(){
 		}
 		//fmt.Println("len(rf.peers)   ",len(rf.peers))
 		for {
-
 			if count == 0 {
 			rf.debug("Count == 0")
 					rf.conductElection()
@@ -366,7 +427,7 @@ func (rf* Raft)conductElection(){
 			if rf.currentState == Follower {
 				break
 			}
-			rf.debug("Did I recieve vote ? --> %t, currentVoteCount =%d ",hasPeerVotedForMe,voteCount)
+			rf.debug("Did I receive vote ? --> %t, currentVoteCount =%d ",hasPeerVotedForMe,voteCount)
 			if hasPeerVotedForMe {
 				voteCount +=1
 				//fmt.Println(rf.me ," Incremented vote count-->",voteCount)
