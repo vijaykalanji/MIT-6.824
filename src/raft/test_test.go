@@ -459,6 +459,7 @@ loop:
 				continue loop
 			}
 			if starti+i != index1 {
+				fmt.Println(" starti+i ----> ",starti+i, "index1---> ",index1)
 				t.Fatalf("Start() failed")
 			}
 		}

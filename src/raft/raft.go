@@ -211,9 +211,62 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)  {
 	rf.mu.Lock()
-	rf.transitionToFollower(args.Term)
-	//fmt.Println("***************Inside the RPC call for AppendEntries *********************")
 	defer rf.mu.Unlock()
+	// Resetting as we received a heart beat.
+	rf.resetElectionTimer()
+	rf.debug( "AppendEntries: from LEADER %#v \n", args)
+	rf.debug("My current state: %#v \n", rf)
+	//1. Reply false if term < currentTerm (§5.1)
+	//2. Reply false if log doesn’t contain an entry at prevLogIndex
+	//whose term matches prevLogTerm (§5.3)
+	//3. If an existing entry conflicts with a new one (same index
+	//but different terms), delete the existing entry and all that
+	//follow it (§5.3)
+	//4. Append any new entries not already in the log
+	//5. If leaderCommit > commitIndex, set commitIndex =
+	//	min(leaderCommit, index of last new entry)
+	/////////////Pending implementation point 5 above.
+		if args.Term < rf.currentTerm{
+			reply.Success = false
+			return
+		}
+		if args.Term > rf.currentTerm{
+			rf.transitionToFollower(args.Term)
+		}
+		// Update my term to that of the leaders
+		rf.currentTerm = args.Term
+		rf.debug("Dereferencing %d",len(rf.log)-1)
+		rf.debug("Current log contents %d", rf.log[len(rf.log)-1])
+	    lastLogEntryIndex :=len(rf.log)-1
+		lastLogEntry := rf.log[len(rf.log)-1]
+		//1a
+	    if lastLogEntryIndex < args.PreviousLogIndex {
+			reply.Success = false
+			return
+		}
+	    //1b
+		if lastLogEntryIndex > args.PreviousLogIndex {
+			reply.Success = false
+			rf.debug("Last log entry index --> %d, PreviousLogIndex From LEADER -->%d", lastLogEntryIndex, args.PreviousLogIndex)
+			rf.log = rf.log[:len(rf.log)-1]
+			return
+		}
+	    //1c
+	    if lastLogEntry.LastLogTerm != args.PreviousLogTerm {
+			reply.Success = false
+			//Reduce size by 1;
+			rf.log = rf.log[:len(rf.log)-1]
+			return
+		}
+	    if args.LeaderCommit > rf.commitIndex {
+			rf.commitIndex = min(args.LeaderCommit,lastLogEntryIndex)
+		}
+	    //We are good to apply the command.
+		rf.log = append(rf.log, args.LogEntries...)
+		reply.Success = true
+
+	//Check at the last. This is because this way the first HB will be sent immediately.
+	//timer := time.NewTimer(100 * time.Millisecond)
 }
 
 //
@@ -371,7 +424,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votedFor=-1
 	rf.currentTerm=0
 	//Initialize the log.
+	//This is a dummy entry
 	rf.log = append(rf.log, LogEntry{LastLogTerm: 0})
+	rf.debug("++++++++++++++++++++++++++Length of the log during initialization---> %d \n",len(rf.log))
 	rf.electionTimer = time.NewTimer((400 + time.Duration(rand.Intn(300))) * time.Millisecond)
 	// Your initialization code here (2A, 2B, 2C).
 	go rf.conductElection()
