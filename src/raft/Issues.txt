@@ -1,0 +1,5 @@
+The issue is that leader sends the append Entry message. Some of the servers are receiving nil values as the log entry
+
+Ex: 
+[2270] FOLLOWER  [id=0] AppendEntries: from LEADER &raft.AppendEntriesArgs{Term:1, LeaderID:1, PreviousLogTerm:0, PreviousLogIndex:0, LogEntries:[]raft.LogEntry(nil), LeaderCommit:0} 
+[2270] FOLLOWER  [id=0] My current state: &raft.Raft{mu:sync.Mutex{state:1, sema:0x0}, peers:[]*labrpc.ClientEnd{(*labrpc.ClientEnd)(0xc42000a860), (*labrpc.ClientEnd)(0xc42000a880), (*labrpc.ClientEnd)(0xc42000a8a0), (*labrpc.ClientEnd)(0xc42000a8c0), (*labrpc.ClientEnd)(0xc42000a8e0)}, persister:(*raft.Persister)(0xc42001dc00), me:0, currentState:"FOLLOWER", commitIndex:0, lastApplied:0, nextIndex:[]int(nil), matchIndex:[]int(nil), currentTerm:1, votedFor:1, log:[]raft.LogEntry{raft.LogEntry{Command:interface {}(nil), LastLogTerm:0, LastLogIndex:0}}, electionTimer:(*time.Timer)(0xc42008e410)} 
