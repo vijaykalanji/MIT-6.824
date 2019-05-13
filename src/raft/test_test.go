@@ -15,6 +15,7 @@ import "math/rand"
 import "sync/atomic"
 import "sync"
 
+
 // The tester generously allows solutions to complete elections in one second
 // (much more than the paper's range of timeouts).
 const RaftElectionTimeout = 1000 * time.Millisecond
@@ -93,22 +94,18 @@ func TestBasicAgree2B(t *testing.T) {
 	servers := 5
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
-
 	cfg.begin("Test (2B): basic agreement")
-
 	iters := 3
 	for index := 1; index < iters+1; index++ {
 		nd, _ := cfg.nCommitted(index)
 		if nd > 0 {
 			t.Fatalf("some have committed before Start()")
 		}
-
 		xindex := cfg.one(index*100, servers, false)
 		if xindex != index {
 			t.Fatalf("got index %v but expected %v", xindex, index)
 		}
 	}
-
 	cfg.end()
 }
 
@@ -520,11 +517,8 @@ func TestPersist12C(t *testing.T) {
 	servers := 3
 	cfg := make_config(t, servers, false)
 	defer cfg.cleanup()
-
 	cfg.begin("Test (2C): basic persistence")
-
 	cfg.one(11, servers, true)
-
 	// crash and re-start all
 	for i := 0; i < servers; i++ {
 		cfg.start1(i)

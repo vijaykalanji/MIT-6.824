@@ -20,7 +20,6 @@ package raft
 import (
 	"fmt"
 	"math/rand"
-
 	"sync"
 	"time"
 	"labrpc"
@@ -182,7 +181,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
 
 	rf.mu.Lock()
-	rf.debug("***************Inside the RPC call for sendRequestVote *********************")
+	rf.debug("***************Inside the RPC handler for sendRequestVote *********************")
 	defer rf.mu.Unlock()
 	var lastIndex int
 	//var lastTerm  int
@@ -214,7 +213,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	defer rf.mu.Unlock()
 	// Resetting as we received a heart beat.
 	rf.resetElectionTimer()
-	rf.debug( "AppendEntries: from LEADER %#v \n", args)
+	rf.debug( "AppendEntries: from LEADER %#v \n",args)
 	rf.debug("My current state: %#v \n", rf)
 	//1. Reply false if term < currentTerm (§5.1)
 	//2. Reply false if log doesn’t contain an entry at prevLogIndex
@@ -242,6 +241,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		//1a
 	    if lastLogEntryIndex < args.PreviousLogIndex {
 			reply.Success = false
+			rf.debug("1a \n")
 			return
 		}
 	    //1b
@@ -251,18 +251,26 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 			rf.log = rf.log[:len(rf.log)-1]
 			return
 		}
-	    //1c
+	    //3
 	    if lastLogEntry.LastLogTerm != args.PreviousLogTerm {
 			reply.Success = false
 			//Reduce size by 1;
+			rf.debug("3 \n")
 			rf.log = rf.log[:len(rf.log)-1]
 			return
 		}
+
+		// 4 We are good to apply the command.
+		rf.printSlice (rf.log, "Before")
+		rf.debug("Printing the entry to be added within the handler %v",args.LogEntries)
+		rf.log = append(rf.log, args.LogEntries...)
+		rf.printSlice (rf.log,"After")
+		rf.debug("\n Applied the command to the log. Log size is -->%d \n",len(rf.log))
+		//5
 	    if args.LeaderCommit > rf.commitIndex {
+			rf.debug("5 Update commitIndex. \n")
 			rf.commitIndex = min(args.LeaderCommit,lastLogEntryIndex)
 		}
-	    //We are good to apply the command.
-		rf.log = append(rf.log, args.LogEntries...)
 		reply.Success = true
 
 	//Check at the last. This is because this way the first HB will be sent immediately.
@@ -338,6 +346,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	term = rf.currentTerm;
 	index = rf.lastApplied
 	rf.sendAppendLogEntries(command)
+	fmt.Println(" index, term, isLeader ", index, term, isLeader)
 	return index, term, isLeader
 }
 
@@ -345,21 +354,27 @@ func (rf* Raft)sendAppendLogEntries(command interface{}){
 		if rf.currentState!=Leader{
 			return
 		}
+
+		var prevLogIndex, prevLogTerm = 0, 0
+		if len(rf.log) > 0 {
+			lastEntry := rf.log[len(rf.log)-1]
+			prevLogIndex, prevLogTerm = lastEntry.LastLogIndex, lastEntry.LastLogIndex
+		} else {
+			prevLogIndex, prevLogTerm = 0, 0
+		}
+		logEntry := LogEntry{LastLogIndex: rf.lastApplied, LastLogTerm: rf.currentTerm, Command: command}
+		// Rule for servers: Leaders:
+		//If command received from client: append entry to local log,
+		//respond after entry applied to state machine (§5.3)
+		rf.log = append(rf.log, logEntry)
+		rf.debug("Leader's log length----> %d", len(rf.log))
 		//Otherwise we will have to send append entries for every peer.
 		for id, peer := range rf.peers {
-			//fmt.Println("peer -->",peer)
 			if id != rf.me {
+				logEntryArr:= make([]LogEntry, 1)
+				logEntryArr[0] = logEntry
 				go func(id int, peer *labrpc.ClientEnd) {
-					var prevLogIndex, prevLogTerm = 0, 0
-					if len(rf.log) > 0 {
-						lastEntry := rf.log[len(rf.log)-1]
-						prevLogIndex, prevLogTerm = lastEntry.LastLogIndex, lastEntry.LastLogIndex
-					} else {
-						prevLogIndex, prevLogTerm = 0, 0
-					}
-					logEntry := LogEntry{LastLogIndex: rf.lastApplied, LastLogTerm: rf.currentTerm, Command: command}
-					logEntryArr:= make([]LogEntry, 1)
-					logEntryArr[0] = logEntry
+					rf.debug("logEntryArr123 %v", logEntryArr[0])
 					reply := AppendEntriesReply{}
 					args := AppendEntriesArgs{
 						Term:             rf.currentTerm,
@@ -369,6 +384,8 @@ func (rf* Raft)sendAppendLogEntries(command interface{}){
 						LogEntries:       logEntryArr, //Log Entry array
 						LeaderCommit:     rf.commitIndex,
 					}
+
+					rf.debug("logEntryArr123 DEBUG NOW  %v", args)
 					requestName := "Raft.AppendEntries"
 					ok := rf.peers[id].Call(requestName, &args, &reply)
 					//fmt.Println("Called APPEND ENTRIES ***************** ",ok, " ",id)
@@ -422,6 +439,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.commitIndex=0
 	rf.lastApplied=0
 	rf.votedFor=-1
+	//05/12
+	//Let the leader start with 0. When a candidate transitions to the candidate state it increments this value.
 	rf.currentTerm=0
 	//Initialize the log.
 	//This is a dummy entry
@@ -530,6 +549,7 @@ func (rf* Raft)sendHeartBeat(){
 						LogEntries:       make([]LogEntry, 0), //Empty array
 						LeaderCommit:     rf.commitIndex,
 					}
+
 					requestName := "Raft.AppendEntries"
 					ok := rf.peers[id].Call(requestName, &args, &reply)
 					//fmt.Println("Called APPEND ENTRIES ***************** ",ok, " ",id)
@@ -601,4 +621,9 @@ func (rf *Raft) debug(format string, a ...interface{}) {
     // NOTE: must hold lock when this function is called!
     Dprintf(rf.me, rf.currentState, format, a...)
     return
+}
+
+func (rf *Raft) printSlice(s []LogEntry, str string) {
+	rf.debug ("%s -->",str)
+	rf.debug(" length=%d capacity=%d %v\n", len(s), cap(s), s)
 }
