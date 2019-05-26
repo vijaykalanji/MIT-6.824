@@ -129,6 +129,8 @@ func (rf *Raft) GetState() (int, bool) {
 	term = rf.currentTerm
 	if rf.currentState =="LEADER"{
 		isleader =true
+	} else{
+		isleader =false
 	}
 	return term, isleader
 }
@@ -203,10 +205,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 			reply.VoteGranted = true
 			rf.currentTerm = args.Term
 			rf.resetElectionTimer()
-			rf.debug("I am setting my currentTerm to -->",args.Term,"I am ",rf.me)
+			//rf.debug("I am setting my currentTerm to -->",args.Term,"I am ",rf.me)
 	}
 }
 
+// This is the receiver for append entries.
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply)  {
 	rf.mu.Lock()
@@ -216,6 +219,11 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	rf.debug( "AppendEntries: from LEADER %#v \n",args)
 	rf.debug("My current state: %#v \n", rf)
 	//1. Reply false if term < currentTerm (§5.1)
+	if args.Term > rf.currentTerm{
+		if rf.currentState != Follower {
+			rf.transitionToFollower(args.Term)
+		}
+	}
 	//2. Reply false if log doesn’t contain an entry at prevLogIndex
 	//whose term matches prevLogTerm (§5.3)
 	//3. If an existing entry conflicts with a new one (same index
@@ -227,16 +235,28 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	/////////////Pending implementation point 5 above.
 		if args.Term < rf.currentTerm{
 			reply.Success = false
+			reply.Term =rf.currentTerm
 			return
 		}
-		if args.Term > rf.currentTerm{
-			rf.transitionToFollower(args.Term)
-		}
+
 		// Update my term to that of the leaders
 		rf.currentTerm = args.Term
 		rf.debug("Dereferencing %d",len(rf.log)-1)
 		rf.debug("Current log contents %d", rf.log[len(rf.log)-1])
-	    lastLogEntryIndex :=len(rf.log)-1
+
+	// Check first whether it is a heartbeat or an actual append entry.
+	// If it is heartbeat, then just reset the timer and then go back.
+	//Otherwise, we need to add the entries into the logs of this peer.
+	// If this is heart beat, then we know that the command is going to be nil.
+	// Identify this and return.
+	if args.LogEntries ==  nil {
+		//This is heart beat
+		reply.Term = rf.currentTerm
+		rf.debug("Received a HEART BEAT. RETURNING")
+		return
+	}
+	rf.debug("Received an APPEND ENTRY. PROCESSING")
+		lastLogEntryIndex :=len(rf.log)-1
 		lastLogEntry := rf.log[len(rf.log)-1]
 		//1a
 	    if lastLogEntryIndex < args.PreviousLogIndex {
@@ -437,7 +457,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	/// Start as a follower.
 	rf.currentState = "FOLLOWER"
 	rf.commitIndex=0
-	rf.lastApplied=0
+	rf.lastApplied=1 // Initializing this to 1 as we have added dummy 0th entry
 	rf.votedFor=-1
 	//05/12
 	//Let the leader start with 0. When a candidate transitions to the candidate state it increments this value.

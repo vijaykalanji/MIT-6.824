@@ -366,6 +366,7 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		}
 		cfg.mu.Lock()
 		cmd1, ok := cfg.logs[i][index]
+		fmt.Println("cmd1, ok ",cmd1, ok)
 		cfg.mu.Unlock()
 
 		if ok {
@@ -449,6 +450,7 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 		if index != -1 {
 			// somebody claimed to be the leader and to have
 			// submitted our command; wait a while for agreement.
+			fmt.Println("somebody claimed to be the leader and to has submitted our command; wait a while for agreement. ",index)
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
@@ -462,13 +464,13 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 				time.Sleep(20 * time.Millisecond)
 			}
 			if retry == false {
-				cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)
+				cfg.t.Fatalf("one(%v) failed 1 to reach agreement", cmd)
 			}
 		} else {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
-	cfg.t.Fatalf("one(%v) failed to reach agreement", cmd)
+	cfg.t.Fatalf("one(%v) failed 2 to reach agreement", cmd)
 	return -1
 }
 
