@@ -366,9 +366,8 @@ func (cfg *config) nCommitted(index int) (int, interface{}) {
 		}
 		cfg.mu.Lock()
 		cmd1, ok := cfg.logs[i][index]
-		fmt.Println("cmd1, ok ",cmd1, ok)
+		fmt.Println("cmd1, ok,i,index ",cmd1, ok,i,index)
 		cfg.mu.Unlock()
-
 		if ok {
 			if count > 0 && cmd != cmd1 {
 				cfg.t.Fatalf("committed values do not match: index %v, %v, %v\n",
@@ -454,10 +453,14 @@ func (cfg *config) one(cmd int, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := cfg.nCommitted(index)
+				fmt.Println("nd = " ,nd,"cmd1= ",cmd1,"expectedServers ",expectedServers)
 				if nd > 0 && nd >= expectedServers {
 					// committed
+					cmd2, ok := cmd1.(int)
+					fmt.Println("cmd2-->",cmd2,"ok -->",ok,"cmd-->",cmd)
 					if cmd2, ok := cmd1.(int); ok && cmd2 == cmd {
 						// and it was the command we submitted.
+						fmt.Println("Returning the index --> ",index);
 						return index
 					}
 				}
