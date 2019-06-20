@@ -242,7 +242,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	// Update my term to that of the leaders
 	rf.currentTerm = args.Term
 	rf.debug("Dereferencing %d",len(rf.log)-1)
-	rf.debug("Current log contents %d", rf.log[len(rf.log)-1])
+	rf.debug("Current log contents %v", rf.log)
 
 	// Check first whether it is a heartbeat or an actual append entry.
 	// If it is heartbeat, then just reset the timer and then go back.
@@ -260,7 +260,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		//1a
 		if lastLogEntryIndex < args.PreviousLogIndex {
 			reply.Success = false
-			reply.NextIndex = lastLogEntryIndex;
+			reply.NextIndex = lastLogEntryIndex
 			rf.debug("1a \n")
 			return
 		}
@@ -289,7 +289,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		//5
 	}
 	if args.LeaderCommit >rf.commitIndex {
-		rf.debug("5 Update commitIndex. \n")
+		rf.debug("5 Update commitIndex. LeaderCommit %v  rf.commitIndex %v \n",args.LeaderCommit,rf.commitIndex )
 		//Check whether all the entries are committed prior to this.
 		oldCommitIndex:=rf.commitIndex
 		rf.commitIndex = min(args.LeaderCommit,lastLogEntryIndex+1)
@@ -393,7 +393,7 @@ func (rf* Raft)sendAppendLogEntries(command interface{}){
 	} else {
 		prevLogIndex, prevLogTerm = 0, 0
 	}
-	logEntry := LogEntry{LastLogIndex: rf.lastApplied, LastLogTerm: rf.currentTerm, Command: command}
+	logEntry := LogEntry{LastLogIndex: prevLogIndex+1, LastLogTerm: prevLogTerm+1, Command: command}
 	// Rule for servers: Leaders:
 	//If command received from client: append entry to local log,
 	//respond after entry applied to state machine (§5.3)
@@ -407,7 +407,7 @@ func (rf* Raft)sendAppendLogEntries(command interface{}){
 			logEntryArr:= make([]LogEntry, 1)
 			logEntryArr[0] = logEntry
 			go func(id int, peer *labrpc.ClientEnd) {
-				//rf.debug("logEntryArr123 %v", logEntryArr[0])
+				//rf.debug("logEntryArr123 %v", logEntryACurrent log contentsrr[0])
 				reply := AppendEntriesReply{}
 				args := AppendEntriesArgs{
 					Term:             rf.currentTerm,
